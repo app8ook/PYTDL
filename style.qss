@@ -1,0 +1,137 @@
+* {
+    font-size: 12pt;
+}
+
+QWidget {
+    background-color: #222222;
+    color: #FF6666;
+    border-radius: 10px;
+    padding: 3px;
+    border: 2px solid #222222;
+}
+
+/* Кнопки */
+QPushButton {
+    background-color: #333333;
+    color: #FF6666;
+    border-radius: 10px;
+    padding: 6px 12px;
+    border: 2px solid #333333;
+}
+
+QPushButton:hover {
+    background-color: #333333;
+    border: 2px solid #FF6666;
+}
+
+QPushButton:pressed {
+    background-color: #333333;
+}
+
+QPushButton:checked {
+    border: 2px solid #FF6666;
+    background-color: #333333;
+}
+
+QTextEdit {
+    background-color: #444444;
+    color: #FF6666;
+    border-radius: 10px;
+    border: none;
+    outline: none;
+    padding: 5px;
+}
+
+QComboBox{
+    background-color: #444444;
+    color: #FF6666;
+    border-radius: 10px;
+    border: #444444;
+    padding: 5px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #555555;
+    color: #FF6666;
+    border-radius: 10px;
+    border: none;
+    outline: none;
+    padding: 5px;
+}
+
+QComboBox QAbstractItemView::item {
+    background-color: 555555;
+    color: #FF6666;
+    padding: 8px 24px;
+    margin: 4px 0;
+    border-radius: 10px;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    background-color: #555555;
+    color: white;
+}
+
+/* Чекбоксы */
+QCheckBox {
+    background-color: #333333;
+    color: #FF6666;
+    border-radius: 10px;
+    padding: 8px 20px;
+    border: 2px solid #333333;
+}
+
+QCheckBox:checked {
+    background-color: #333333;
+    border: 2px solid #FF6666;
+}
+
+QCheckBox::indicator { 
+    image: none; 
+    width: 0; 
+    height: 0; 
+}
+
+QProgressBar {
+    border-radius: 5px;
+    background-color: #333333;
+    color: #111111;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background-color: #FF6666;
+    border-radius: 5px;
+}
+
+/* Вертикальный скроллбар */
+QScrollBar:vertical {
+    background: #555555;
+    width: 8px;
+    margin: 0px 0px 0px 0px;
+    border-radius: 10px;
+}
+
+QScrollBar::handle:vertical {
+    background: #555555;
+    min-height: 20px;
+    border-radius: 10px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 1px;
+}
+
+/* Горизонтальный скроллбар */
+QScrollBar:horizontal {
+    background: #555555;
+    height: 8px;
+    margin: 0px 0px 0px 0px;
+    border-radius: 10px;
+}
+QScrollBar::handle:horizontal {
+    background: #555555;
+    min-width: 20px;
+    border-radius: 10px;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 1px;
+}

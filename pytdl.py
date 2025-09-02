@@ -1,5 +1,5 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt5.QtGui import QIcon
 import yt_dlp
 import re
 import os
@@ -7,201 +7,187 @@ import sys
 import threading
 from queue import Queue
 
-class YouTubeDownloader:
+def resource_path(relative_path):
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
+
+class YouTubeDownloader(QtWidgets.QWidget):
     def __init__(self):
-        self.window = tk.Tk()
-        self.window.title("PYTDL_0.1")
-        self.window.configure(bg="#2b2b2b")
-        self.window.geometry("600x400")
-        self.window.minsize(600, 400)
+        super().__init__()
+        self.setWindowTitle("PYTDL_0.2")
+        self.resize(600, 400)
+
+        icon_path = resource_path("Kosou.ico")
+        self.setWindowIcon(QIcon(icon_path))
+
         self.queue = Queue()
         self.stop_requested = False
         self.downloading = False
         self.current_process = None
+        self.mode_var = "video"
 
-        self.mode_var = tk.StringVar(value="video")
+        self.audio_qual = ""
+        self.video_qual = ""
+
+        # Основной layout
+        self.main_layout = QtWidgets.QVBoxLayout(self)
+
+        # Кнопки переключения режимов
+        self.video_btn = QtWidgets.QPushButton("Видео")
+        self.audio_btn = QtWidgets.QPushButton("Аудио")
+        self.video_btn.setCheckable(True)
+        self.audio_btn.setCheckable(True)
+        self.video_btn.setChecked(True)  # Начальный режим — Видео
+
+        self.mode_group = QtWidgets.QButtonGroup(self)
+        self.mode_group.setExclusive(True)
+        self.mode_group.addButton(self.video_btn)
+        self.mode_group.addButton(self.audio_btn)
+
+        mode_layout = QtWidgets.QHBoxLayout()
+        mode_layout.addWidget(self.video_btn)
+        mode_layout.addWidget(self.audio_btn)
+
+        # Поле для ссылки и выбор качества
+        self.url_label = QtWidgets.QLabel("Ссылка:")
+        self.url_text = QtWidgets.QTextEdit()
+        self.url_text.setFixedHeight(60)
+
+        self.quality_label = QtWidgets.QLabel("Качество:")
+        self.quality_combo = QtWidgets.QComboBox()
+
+        # Размещаем элементы
+        self.main_layout.addLayout(mode_layout)
+        self.main_layout.addWidget(self.url_label)
+        self.main_layout.addWidget(self.url_text)
+
+        quality_layout = QtWidgets.QHBoxLayout()
+        quality_layout.addWidget(self.quality_label)
+        quality_layout.addWidget(self.quality_combo)
+        self.main_layout.addLayout(quality_layout)
+
+        self.quality_combo.currentTextChanged.connect(self.on_quality_changed)
+
+        self.download_btn = QtWidgets.QPushButton("Скачать")
+        self.download_btn.clicked.connect(self.start_download)
+        self.stop_btn = QtWidgets.QPushButton("Стоп")
+        self.stop_btn.clicked.connect(self.stop_download)
         
-        self.create_mode_selector()
-        self.create_video_frame()
-        self.create_audio_frame()
-        self.create_log_section()
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.addWidget(self.download_btn)
+        btn_layout.addWidget(self.stop_btn)
+        self.main_layout.addLayout(btn_layout)
 
-        self.last_progress = ""
-        self.current_file = ""
+        self.log_text = QtWidgets.QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.main_layout.addWidget(self.log_text)
 
-        self.window.after(100, self.process_queue)
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(False)
+        self.main_layout.addWidget(self.progress_bar)
 
+        self.timer = QtCore.QTimer(self)
+        self.timer.timeout.connect(self.process_queue)
+        self.timer.start(100)
+
+        self.mode_group.buttonClicked.connect(self.on_mode_changed)
+        self.update_quality()
+
+        # Настройка пути к ffmpeg
         if getattr(sys, 'frozen', False):
-            # Если программа скомпилирована
             self.base_dir = os.path.dirname(sys.executable)
         else:
-            # Если запущена из исходного кода
             self.base_dir = os.path.dirname(os.path.abspath(__file__))
 
         self.ffmpeg_path = os.path.join(self.base_dir, "ffmpeg")
 
         if not os.path.exists(self.ffmpeg_path):
             raise FileNotFoundError(f"Папка ffmpeg не найдена: {self.ffmpeg_path}")
-        
+
         self.ffmpeg_exe = os.path.join(self.ffmpeg_path, "ffmpeg.exe")
-        
+
         if not os.path.exists(self.ffmpeg_exe):
             raise FileNotFoundError(f"ffmpeg.exe не найден: {self.ffmpeg_exe}")
 
-        self.window.bind_all("<Control-Key>", self.CopyPaste)
+    def on_mode_changed(self, button):
+        if button == self.video_btn:
+            self.mode_var = "video"
+        else:
+            self.mode_var = "audio"
+            
+        self.update_quality()
 
-    def CopyPaste(self, event):
-        """Обработчик клавиатуры для Ctrl+комбинаций"""
-        if event.keycode == 86 and event.keysym != 'v':
-            event.widget.event_generate('<<Paste>>')
-            return "break"
-        elif event.keycode == 67 and event.keysym != 'c':
-            event.widget.event_generate('<<Copy>>')
-            return "break"
-        elif event.keycode == 88 and event.keysym != 'x':
-            event.widget.event_generate('<<Cut>>')
-            return "break"
-        elif event.keycode == 65 and event.keysym != 'a':
-            event.widget.tag_add('sel', '1.0', 'end')
-            return "break"
+    def update_quality(self):
+        if self.video_btn.isChecked():
+            self.quality_combo.clear()
+            self.quality_combo.addItems(["480", "720", "1080"])
+        else:
+            self.quality_combo.clear()
+            self.quality_combo.addItems(["128", "192", "320"])
 
-    def create_log_section(self):
-        self.log_frame = tk.Frame(self.window, bg="#2b2b2b", padx=5, pady=5)
-        self.log_frame.pack(pady=10, fill=tk.BOTH, expand=True)
-        
-        self.log_text = tk.Text(self.log_frame, wrap=tk.WORD, state='disabled',
-                               bg="#1a1a1a", fg="#ffffff", insertbackground="white", height=5)
-        self.log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+    def on_quality_changed(self, text):
+        if self.mode_var == "video":
+            self.video_qual = text
+        else:
+            self.audio_qual = text
+
+    def start_download(self):
+        if self.downloading:
+            QtWidgets.QMessageBox.warning(self, "Ошибка", "Скачивание уже в процессе!")
+            return
+
+        self.downloading = True
+        self.stop_requested = False
+
+        threading.Thread(target=self.download_process, daemon=True).start()
 
     def stop_download(self):
+        if self.downloading == False:
+            QtWidgets.QMessageBox.warning(self, "Ошибка", "Ничего не скачивается")
+            return
+
         self.stop_requested = True
         self.append_log("[ИНФО] Остановка скачивания...")
-        self.video_stop_btn.configure(state='disabled')
-        self.audio_stop_btn.configure(state='disabled')
-        
+
+    def clean_ansi(self, text):
+        ansi_escape = re.compile(r'\x1b\[([0-9;]*m)')
+        return ansi_escape.sub('', text)
 
     def append_log(self, message, replace_last=False):
-        self.log_text.configure(state='normal')
-        if replace_last and self.last_progress:
-            self.log_text.delete("end-2l", "end-1c")
-        self.log_text.insert(tk.END, message + "\n")
-        self.log_text.see(tk.END)
-        self.log_text.configure(state='disabled')
+        message = self.clean_ansi(message)
         if replace_last:
-            self.last_progress = message
-        else:
-            self.last_progress = ""
+            cursor = self.log_text.textCursor()
+            cursor.movePosition(QtGui.QTextCursor.End)
+            cursor.select(QtGui.QTextCursor.BlockUnderCursor)
+            cursor.removeSelectedText()
+            cursor.deletePreviousChar()
+        self.log_text.append(message)
 
     def process_queue(self):
         while not self.queue.empty():
             item = self.queue.get()
-
             if isinstance(item, tuple) and len(item) == 2:
                 msg_type, msg = item
-                if msg_type == "progress":
+                if msg_type == "progress_value":
+                    self.progress_bar.setValue(int(msg))
+                elif msg_type == "progress_text":
                     self.append_log(msg, replace_last=True)
                 else:
                     self.append_log(msg)
             else:
                 self.append_log(str(item))
-        
-        self.window.after(100, self.process_queue)
 
     def validate_url(self, url):
         return re.match(r'https?://(?:www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/', url)
 
-    def create_mode_selector(self):
-        mode_frame = tk.Frame(self.window, bg="#2b2b2b")
-        mode_frame.pack(pady=10)
-        
-        tk.Radiobutton(
-            mode_frame, text="Видео", variable=self.mode_var, value="video",
-            command=self.switch_mode, bg="#2b2b2b", fg="white", selectcolor="#2b2b2b"
-        ).pack(side=tk.LEFT, padx=10)
-        
-        tk.Radiobutton(
-            mode_frame, text="Аудио", variable=self.mode_var, value="audio",
-            command=self.switch_mode, bg="#2b2b2b", fg="white", selectcolor="#2b2b2b"
-        ).pack(side=tk.LEFT, padx=10)
-
-    def create_video_frame(self):
-        self.video_frame = tk.Frame(self.window, bg="#2b2b2b")
-        
-        tk.Label(self.video_frame, text="Ссылка на видео/плейлист:", bg="#2b2b2b", fg="white").pack(pady=5)
-        self.video_entry = tk.Text(self.video_frame, height=3, width=50, bg="#4b4b4b", fg="white")
-        self.video_entry.pack(pady=5)
-        
-        quality_frame = tk.Frame(self.video_frame, bg="#2b2b2b")
-        quality_frame.pack(pady=5)
-        tk.Label(quality_frame, text="Качество:", bg="#2b2b2b", fg="white").pack(side=tk.LEFT)
-
-        self.video_quality = ttk.Combobox(quality_frame, values=["480", "720", "1080"], state="readonly")
-        self.video_quality.current(1)
-        self.video_quality.pack(side=tk.LEFT, padx=5)
-        
-        tk.Button(
-            self.video_frame, text="Скачать", command=self.start_download,
-            bg="#4b4b4b", fg="white"
-        ).pack(side=tk.LEFT, padx=120)
-
-        self.video_stop_btn = tk.Button(
-            self.video_frame, text="Стоп", command=self.stop_download,
-            bg="#4b4b4b", fg="white", state='disabled'
-        )
-        self.video_stop_btn.pack(side=tk.RIGHT, padx=120)
-
-    def create_audio_frame(self):
-        self.audio_frame = tk.Frame(self.window, bg="#2b2b2b")
-        
-        tk.Label(self.audio_frame, text="Ссылка на аудио/плейлист:", bg="#2b2b2b", fg="white").pack(pady=5)
-        self.audio_entry = tk.Text(self.audio_frame, height=3, width=50, bg="#4b4b4b", fg="white")
-        self.audio_entry.pack(pady=5)
-        
-        quality_frame = tk.Frame(self.audio_frame, bg="#2b2b2b")
-        quality_frame.pack(pady=5)
-        tk.Label(quality_frame, text="Качество:", bg="#2b2b2b", fg="white").pack(side=tk.LEFT)
-
-        self.audio_quality = ttk.Combobox(quality_frame, values=["128", "192", "320"], state="readonly")
-        self.audio_quality.current(2)
-        self.audio_quality.pack(side=tk.LEFT, padx=5)
-        
-        tk.Button(
-            self.audio_frame, text="Скачать", command=self.start_download,
-            bg="#4b4b4b", fg="white"
-        ).pack(side=tk.LEFT, padx=120)
-
-        self.audio_stop_btn = tk.Button(
-            self.audio_frame, text="Стоп", command=self.stop_download,
-            bg="#4b4b4b", fg="white", state='disabled'
-        )
-        self.audio_stop_btn.pack(side=tk.RIGHT, padx=120)
-
-    def switch_mode(self):
-        if self.mode_var.get() == "video":
-            self.audio_frame.pack_forget()
-            self.video_frame.pack()
-        else:
-            self.video_frame.pack_forget()
-            self.audio_frame.pack()
-
-    def start_download(self):
-        if self.downloading:
-            messagebox.showwarning("Ошибка", "Скачивание уже в процессе!")
-            return
-
-        self.downloading = True
-        self.stop_requested = False
-        self.video_stop_btn.configure(state='normal')
-        self.audio_stop_btn.configure(state='normal')
-        threading.Thread(target=self.download_process, daemon=True).start()
-
     def download_process(self):
         try:
-            mode = self.mode_var.get()
-            url = self.video_entry.get("1.0", tk.END).strip() if mode == "video" else self.audio_entry.get("1.0", tk.END).strip()
-            
+            mode = self.mode_var
+            url = self.url_text.toPlainText().strip()
+
             if not self.validate_url(url):
-                self.queue.put("[ОШИБКА] Неверный формат ссылки!")
+                self.queue.put(("error", "[ОШИБКА] Неверный формат ссылки!"))
                 self.downloading = False
                 return
 
@@ -218,20 +204,20 @@ class YouTubeDownloader:
 
             if mode == "video":
                 ydl_opts.update({
-                    'format': f"bestvideo[height<={self.video_quality.get()}]+bestaudio/best",
+                    'format': f"bestvideo[height<={self.video_qual}]+bestaudio/best",
                     'postprocessors': [{
                         'key': 'FFmpegVideoRemuxer',
                         'preferedformat': 'mp4',
-                        }],
+                    }],
                 })
             else:
                 ydl_opts.update({
                     'format': 'bestaudio/best',
-                    'outtmpl': os.path.join(download_path, '%(artist)s - %(title)s.%(ext)s'),
+                    'outtmpl': os.path.join(download_path, '%(title)s.%(ext)s'),
                     'postprocessors': [{
                         'key': 'FFmpegExtractAudio',
                         'preferredcodec': 'mp3',
-                        'preferredquality': self.audio_quality.get(),
+                        'preferredquality': self.audio_qual
                     }]
                 })
 
@@ -240,38 +226,39 @@ class YouTubeDownloader:
                 ydl.download([url])
 
         except Exception as e:
-            self.queue.put(f"[ОШИБКА] {str(e)}")
+            self.queue.put(("error", f"[ОШИБКА] {str(e)}"))
         finally:
             self.downloading = False
-            self.video_stop_btn.configure(state='disabled')
-            self.audio_stop_btn.configure(state='disabled')
-            self.queue.put("[ИНФО] Скачивание завершено!")
+            self.queue.put(("info", "[ИНФО] Скачивание завершено!"))
+            self.progress_bar.setValue(100)
 
     def progress_hook(self, d):
         if self.stop_requested:
             raise Exception("Скачивание остановлено пользователем!")
 
         if d['status'] == 'downloading':
-            if 'filename' in d:
-                fname = os.path.basename(d['filename'])
-                self.current_file = fname.split('.')[0]
-            
-            percent = d.get('_percent_str', '0.0%').strip()
-            total = d.get('_total_bytes_str', '?').strip()
-            speed = d.get('_speed_str', '?').strip()
-            
-            percent = re.sub(r'\x1b\[[0-9;]*[mK]', '', percent)
-            total = re.sub(r'\x1b\[[0-9;]*[mK]', '', total)
-            speed = re.sub(r'\x1b\[[0-9;]*[mK]', '', speed)
-            
-            progress_msg = f"[ЗАГРУЗКА] {percent} | {total} | {speed}/s"
-            
-            self.queue.put(("progress", progress_msg))
-        
+            # Попробуем получить название из info_dict
+            info = d.get('info_dict', {})
+            title = info.get('title') if info else None
+            if title is None:
+                title = "N/A"
+
+            percent_str = d.get('_percent_str', '0.0%').strip()
+            percent_clean = re.sub(r'\x1b\[[0-9;]*m', '', percent_str)
+            try:
+                percent_val = float(percent_clean.replace('%', ''))
+            except:
+                percent_val = 0
+            speed_clean = re.sub(r'\x1b\[[0-9;]*m', '', d.get('_speed_str', '?').strip())
+
+            progress_msg = f"[ЗАГРУЗКА] {title} | {percent_clean} | {speed_clean}/s"
+
+            self.queue.put(("progress_value", percent_val))
+            self.queue.put(("progress_text", progress_msg))
+
         elif d['status'] == 'finished':
             fname = os.path.basename(d['filename'])
-            self.queue.put(("info", f"[УСПЕХ] Файл сохранен"))
-            self.current_file = ""
+            self.queue.put(("info", f"[УСПЕХ] Файл сохранен: {fname}"))
 
     class YTDLPLogger:
         def __init__(self, queue):
@@ -291,10 +278,17 @@ class YouTubeDownloader:
             msg = re.sub(r'\x1b\[[0-9;]*[mK]', '', msg)
             self.queue.put(("error", msg))
 
-    def run(self):
-        self.switch_mode()
-        self.window.mainloop()
-
 if __name__ == "__main__":
-    app = YouTubeDownloader()
-    app.run()
+    app = QtWidgets.QApplication(sys.argv)
+
+    # Загрузка стилей из style.qss
+    style_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.qss")
+    if os.path.exists(style_path):
+        with open(style_path, "r", encoding="utf-8") as style_file:
+            app.setStyleSheet(style_file.read())
+
+    downloader = YouTubeDownloader()
+    downloader.show()
+    sys.exit(app.exec_())
+    
+#pyinstaller --onefile -w --icon=Kosou.ico --name=PYTDL --add-data "style.qss;." --add-data "Kosou.ico;." pytdl.py
